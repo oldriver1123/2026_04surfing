@@ -30,6 +30,8 @@ LOCATIONS = [
 ]
 
 DAYS_TO_SHOW = 3
+TARGET_START_HOUR = 8
+TARGET_END_HOUR = 10
 
 
 def load_config(path: str = "config.json") -> dict:
@@ -80,6 +82,21 @@ def format_tides(tide_info: dict) -> tuple[str, str]:
     return highs, lows
 
 
+def summarize_records(records: list[dict]) -> dict:
+    if not records:
+        return {}
+
+    base = records[0]
+    return {
+        "wave_height": sum(record["wave_height"] for record in records) / len(records),
+        "wave_period": sum(record["wave_period"] for record in records) / len(records),
+        "wind_speed": sum(record["wind_speed"] for record in records) / len(records),
+        "temperature": sum(record["temperature"] for record in records) / len(records),
+        "wind_direction": base["wind_direction"],
+        "weather_desc": base["weather_desc"],
+    }
+
+
 def build_day_block(
     date_str: str,
     hours: list[dict],
@@ -90,31 +107,40 @@ def build_day_block(
     if not scored:
         return ""
 
-    ranked = sorted(scored, key=lambda item: item["score"].total, reverse=True)
-    best = ranked[0]
-    score = best["score"]
     target = datetime.strptime(date_str, "%Y-%m-%d").date()
-    best_hour = best["datetime"].hour
-    end_hour = min(best_hour + 2, 20)
-
-    window_records = [
+    fixed_window = [
         record for record in scored
-        if best_hour <= record["datetime"].hour < end_hour
+        if TARGET_START_HOUR <= record["datetime"].hour < TARGET_END_HOUR
     ]
-    avg_temp = (
-        sum(record["temperature"] for record in window_records) / len(window_records)
-        if window_records else best.get("temperature", 0.0)
-    )
+    if not fixed_window:
+        return ""
+
+    fixed_best = max(fixed_window, key=lambda item: item["score"].total)
+    fixed_score = fixed_best["score"]
+    fixed_summary = summarize_records(fixed_window)
+
+    overall_best = max(scored, key=lambda item: item["score"].total)
+    overall_score = overall_best["score"]
+    overall_hour = overall_best["datetime"].hour
+    overall_end_hour = min(overall_hour + 2, 20)
 
     lines = [
         f"■ {day_label(target, today)}",
-        f"{score.rating} {score.total}点  {score.comment}",
-        f"おすすめ {best_hour:02d}:00-{end_hour:02d}:00",
-        f"波 {best['wave_height']:.1f}m / 周期 {best['wave_period']:.0f}s / 風 {wind_dir_label(best['wind_direction'])} {best['wind_speed']:.1f}m/s",
-        f"天気 {best['weather_desc']} / 気温 {avg_temp:.0f}C / 混雑 {score.crowd_label}",
-        f"波評価 {score.wave_label}",
-        f"風評価 {score.wind_label}",
+        f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
+        f"波 {fixed_summary['wave_height']:.1f}m / 周期 {fixed_summary['wave_period']:.0f}s / 風 {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s",
+        f"天気 {fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C / 混雑 {fixed_score.crowd_label}",
+        f"波評価 {fixed_score.wave_label}",
+        f"風評価 {fixed_score.wind_label}",
     ]
+
+    is_better_outside_target = (
+        overall_score.total > fixed_score.total
+        and not (TARGET_START_HOUR <= overall_hour < TARGET_END_HOUR)
+    )
+    if is_better_outside_target:
+        lines.append(
+            f"より良い時間帯 {overall_hour:02d}:00-{overall_end_hour:02d}:00 ({overall_score.total}点)"
+        )
 
     if tide_info:
         highs, lows = format_tides(tide_info)
