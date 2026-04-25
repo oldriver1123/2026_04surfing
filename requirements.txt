@@ -1,0 +1,4 @@
+requests>=2.31.0
+pytz>=2024.1
+jpholiday>=0.1.8
+# stormglass は REST API のため追加ライブラリ不要（requests で直接呼び出し）

@@ -1,0 +1,72 @@
+============================================================
+ LINE Messaging API セットアップ手順
+ （LINE Notify は 2025年3月末に終了のため、こちらを使用）
+============================================================
+
+【STEP 1】LINE Developers アカウント作成
+  1. https://developers.line.biz/ にアクセス
+  2. LINE アカウントでログイン
+
+【STEP 2】プロバイダー作成
+  1. 「プロバイダー」→「作成」
+  2. 名前: 例「SurfApp」
+
+【STEP 3】Messaging API チャネル作成
+  1. プロバイダーを選択 →「チャネルを作成」
+  2. 「Messaging API」を選択
+  3. 必要事項を入力（チャネル名: 例「茅ヶ崎サーフ予報」）
+
+【STEP 4】Channel Access Token の取得
+  1. 作成したチャネルを開く
+  2. 「Messaging API 設定」タブ
+  3. 「Channel access token (long-lived)」→「発行」
+  4. 表示されたトークンをコピー → config.json の
+     "channel_access_token" に貼り付け
+
+【STEP 5】自分の User ID の確認
+  方法A（チャネル設定から）:
+    「Messaging API 設定」タブ →「あなたのユーザーID」に表示
+
+  方法B（Webhook から）:
+    LINE アプリでそのボットを「友だち追加」してメッセージを送ると
+    Webhook イベントでユーザー ID が分かる
+
+  取得した User ID（Uxxxxxxxx...）を config.json の "user_id" に貼り付け
+
+【STEP 6】ボットを友だち追加
+  1. 「Messaging API 設定」タブ → QR コードを LINE アプリでスキャン
+  2. ボットを友だち追加する
+  ※ 友だち追加しないと push message が届きません
+
+【STEP 7】設定確認
+  config.json:
+    "line": {
+      "enabled": true,
+      "channel_access_token": "発行したトークン",
+      "user_id": "UxxxxxxxxxxxxxxxxxxxxxxxxxxxX"
+    }
+
+【テスト実行】
+  コマンドプロンプトで:
+    cd C:\Users\yfuru\OneDrive\デスクトップ\サーフィンアプリ
+    python main.py --preview    ← 送信せずコンソール確認
+    python main.py              ← 実際に LINE に送信
+
+============================================================
+ Gmail でメール通知を使う場合
+============================================================
+  1. Google アカウント → セキュリティ → 2段階認証を有効化
+  2. 「アプリパスワード」を作成（16桁）
+  3. config.json:
+       "email": {
+         "enabled": true,
+         "to": "受信先メールアドレス",
+         "smtp": {
+           "host": "smtp.gmail.com",
+           "port": 465,
+           "username": "Gmailアドレス",
+           "password": "アプリパスワード16桁",
+           "from": "Gmailアドレス"
+         }
+       }
+============================================================
