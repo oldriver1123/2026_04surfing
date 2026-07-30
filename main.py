@@ -23,13 +23,13 @@ JST = pytz.timezone("Asia/Tokyo")
 
 LOCATIONS = [
     {
-        "name": "茅ヶ崎（チーバー）",
+        "name": "鵠沼（スケートパーク前）",
         "lat": 35.320,
         "lon": 139.470,
     },
 ]
 
-DAYS_TO_SHOW = 3
+DAYS_TO_SHOW = 4
 TARGET_START_HOUR = 8
 TARGET_END_HOUR = 10
 
@@ -68,8 +68,8 @@ def day_label(target: date, today: date) -> str:
         return f"明日 {date_str}({weekday})"
     if diff == 2:
         return f"明後日 {date_str}({weekday})"
-    if diff == 3:
-        return f"3日後 {date_str}({weekday})"
+    if diff >= 3:
+        return f"{diff}日後 {date_str}({weekday})"
     return f"{date_str}({weekday})"
 
 
@@ -127,11 +127,19 @@ def build_day_block(
     lines = [
         f"■ {day_label(target, today)}",
         f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
-        f"波 {fixed_summary['wave_height']:.1f}m / 周期 {fixed_summary['wave_period']:.0f}s / 風 {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s",
-        f"天気 {fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C / 混雑 {fixed_score.crowd_label}",
-        f"波評価 {fixed_score.wave_label}",
-        f"風評価 {fixed_score.wind_label}",
+        "",
+        f"【波の状態】{fixed_score.wave_condition_score}点",
+        f"  風: {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s（{fixed_score.wind_label}）",
+        f"  周期: {fixed_summary['wave_period']:.0f}秒",
+        f"  波高: {fixed_summary['wave_height']:.1f}m（{fixed_score.wave_label}）",
     ]
+
+    if tide_info:
+        highs, lows = format_tides(tide_info)
+        lines.append(f"  潮: 満潮 {highs} / 干潮 {lows}")
+
+    lines.append(f"【混雑】{fixed_score.crowd_label}")
+    lines.append(f"【天気】{fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C")
 
     is_better_outside_target = (
         overall_score.total > fixed_score.total
@@ -141,11 +149,6 @@ def build_day_block(
         lines.append(
             f"より良い時間帯 {overall_hour:02d}:00-{overall_end_hour:02d}:00 ({overall_score.total}点)"
         )
-
-    if tide_info:
-        highs, lows = format_tides(tide_info)
-        lines.append(f"満潮 {highs}")
-        lines.append(f"干潮 {lows}")
 
     return "\n".join(lines)
 
@@ -244,7 +247,7 @@ def main() -> None:
         sys.exit(1)
 
     start_dt = datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    end_dt = start_dt + timedelta(days=3)
+    end_dt = start_dt + timedelta(days=DAYS_TO_SHOW)
     start_ts = int(start_dt.timestamp())
     end_ts = int(end_dt.timestamp())
 
