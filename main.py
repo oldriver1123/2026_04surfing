@@ -75,7 +75,7 @@ def day_label(target: date, today: date) -> str:
 
 def format_tides(tide_info: dict) -> tuple[str, str]:
     def fmt(entries: list[tuple[datetime, float]]) -> str:
-        return "  ".join(f"{dt.strftime('%H:%M')}({height:+.2f}m)" for dt, height in entries)
+        return "  ".join(dt.strftime("%H:%M") for dt, _height in entries)
 
     highs = fmt(tide_info.get("highs", [])) or "-"
     lows = fmt(tide_info.get("lows", [])) or "-"
@@ -127,10 +127,9 @@ def build_day_block(
     lines = [
         f"■ {day_label(target, today)}",
         f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
-        "",
         f"【波の状態】{fixed_score.wave_condition_score}点",
         f"  風: {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s（{fixed_score.wind_label}）",
-        f"  周期: {fixed_summary['wave_period']:.0f}秒",
+        f"  周期: {fixed_summary['wave_period']:.0f}秒（{fixed_score.period_label}）",
         f"  波高: {fixed_summary['wave_height']:.1f}m（{fixed_score.wave_label}）",
     ]
 
@@ -138,7 +137,6 @@ def build_day_block(
         highs, lows = format_tides(tide_info)
         lines.append(f"  潮: 満潮 {highs} / 干潮 {lows}")
 
-    lines.append(f"【混雑】{fixed_score.crowd_label}")
     lines.append(f"【天気】{fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C")
 
     is_better_outside_target = (
@@ -163,14 +161,15 @@ def build_location_section(
     today_str = today.strftime("%Y-%m-%d")
     future_keys = [key for key in sorted(daily.keys()) if key > today_str][:DAYS_TO_SHOW]
 
-    lines = [location["name"]]
-
+    blocks = []
     for date_str in future_keys:
         block = build_day_block(date_str, daily[date_str], today, tide_info=tides_all.get(date_str))
         if block:
-            lines.append(block)
+            blocks.append(block)
 
-    return "\n".join(lines)
+    if not blocks:
+        return location["name"]
+    return location["name"] + "\n" + "\n\n".join(blocks)
 
 
 def build_full_message(location_sections: list[str]) -> str:

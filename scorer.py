@@ -31,6 +31,7 @@ class SurfScore:
     wave_condition_score: int # 波の状態スコア（風・周期・波高の合成、内訳表示用）
     wave_score: int           # 波高スコア
     period_score: int         # 周期スコア
+    period_label: str         # 周期の説明
     wind_score: int           # 風スコア
     weather_score: int        # 天気スコア
     crowd_score: int          # 混雑スコア
@@ -67,19 +68,26 @@ def _score_wave_height(h: float) -> tuple[int, str]:
         return 0,   "頭オーバー（高すぎて乗れない・危険）"
 
 
-def _score_wave_period(p: float) -> int:
+def _score_wave_period(p: float) -> tuple[int, str]:
     """
-    波の周期スコア
+    波の周期スコアと説明
     ミッドレングスは短周期の波でも掴みやすいが、面がきれいに整うのは
     やはり周期が長い groundswell。9〜13秒を最も高評価とする。
     """
-    if p <= 0:    return 0
-    elif p < 5:   return 25
-    elif p < 7:   return 60
-    elif p < 9:   return 85
-    elif p <= 13: return 100
-    elif p <= 16: return 80
-    else:         return 55
+    if p <= 0:
+        return 0,   "データなし"
+    elif p < 5:
+        return 25,  "短め（面が乱れやすい）"
+    elif p < 7:
+        return 60,  "やや短め"
+    elif p < 9:
+        return 85,  "まずまず"
+    elif p <= 13:
+        return 100, "理想的（面がきれいで走りやすい）"
+    elif p <= 16:
+        return 80,  "ロングピリオド（パワフル）"
+    else:
+        return 55,  "非常に長い（威力が強くタイミング注意）"
 
 
 def _score_wind(speed: float, direction: float) -> tuple[int, str]:
@@ -157,7 +165,7 @@ def calculate(wave_height: float, wave_period: float,
     潮はスコアに含まず、表示情報として保持する
     """
     wh_score,  wave_label  = _score_wave_height(wave_height)
-    wp_score               = _score_wave_period(wave_period)
+    wp_score,  period_label = _score_wave_period(wave_period)
     wnd_score, wind_label  = _score_wind(wind_speed, wind_direction)
     wthr_score             = _score_weather(cloud_cover, precipitation)
     crd_score, crowd_label = _score_crowd(dt_date or date_type.today())
@@ -192,6 +200,7 @@ def calculate(wave_height: float, wave_period: float,
         wave_condition_score=wave_condition_score,
         wave_score=wh_score,
         period_score=wp_score,
+        period_label=period_label,
         wind_score=wnd_score,
         weather_score=wthr_score,
         crowd_score=crd_score,
