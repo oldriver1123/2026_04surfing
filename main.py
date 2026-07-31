@@ -33,6 +33,15 @@ DAYS_TO_SHOW = 4
 TARGET_START_HOUR = 8
 TARGET_END_HOUR = 10
 
+# 正午より前の実行は「当日のみ」表示に切り替える（朝6時の実行を想定）
+MORNING_CUTOFF_HOUR = 12
+
+# 現地の実況レポートアカウント（自動取得はせず、朝の通知にリンクのみ参考掲載する）
+LOCAL_REPORT_ACCOUNTS = [
+    ("Hiroyuki Yamaguchi（鵠沼）", "https://x.com/Jetsetterhiyota"),
+    ("しょーり_808HI（辻堂）", "https://x.com/Rvision62"),
+]
+
 
 def load_config(path: str = "config.json") -> dict:
     try:
@@ -64,6 +73,8 @@ def day_label(target: date, today: date) -> str:
     diff = (target - today).days
     weekday = ["月", "火", "水", "木", "金", "土", "日"][target.weekday()]
     date_str = target.strftime("%m/%d")
+    if diff == 0:
+        return f"本日 {date_str}({weekday})"
     if diff == 1:
         return f"明日 {date_str}({weekday})"
     if diff == 2:
@@ -156,13 +167,17 @@ def build_location_section(
     records: list[dict],
     tides_all: dict,
     today: date,
+    today_only: bool = False,
 ) -> str:
     daily = group_by_day(records)
     today_str = today.strftime("%Y-%m-%d")
-    future_keys = [key for key in sorted(daily.keys()) if key > today_str][:DAYS_TO_SHOW]
+    if today_only:
+        target_keys = [key for key in sorted(daily.keys()) if key == today_str][:1]
+    else:
+        target_keys = [key for key in sorted(daily.keys()) if key > today_str][:DAYS_TO_SHOW]
 
     blocks = []
-    for date_str in future_keys:
+    for date_str in target_keys:
         block = build_day_block(date_str, daily[date_str], today, tide_info=tides_all.get(date_str))
         if block:
             blocks.append(block)
@@ -172,11 +187,19 @@ def build_location_section(
     return location["name"] + "\n" + "\n\n".join(blocks)
 
 
-def build_full_message(location_sections: list[str]) -> str:
+def build_full_message(location_sections: list[str], today_only: bool = False) -> str:
     valid_sections = [section for section in location_sections if section.strip()]
     if not valid_sections:
         return "今日はデータ取得できませんでした。時間をおいて再実行してください。"
-    return "\n\n".join(valid_sections)
+
+    message = "\n\n".join(valid_sections)
+
+    if today_only and LOCAL_REPORT_ACCOUNTS:
+        report_lines = ["", "", "【現地レポート（参考）】"]
+        report_lines += [f"  {name}: {url}" for name, url in LOCAL_REPORT_ACCOUNTS]
+        message += "\n".join(report_lines)
+
+    return message
 
 
 def send_notifications(message: str, cfg: dict, today: date) -> None:
@@ -238,15 +261,22 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = load_config(args.config)
-    today = datetime.now(JST).date()
+    now = datetime.now(JST)
+    today = now.date()
+    today_only = now.hour < MORNING_CUTOFF_HOUR
 
     api_key = cfg.get("stormglass_api_key", "").strip()
     if not api_key or api_key == "YOUR_STORMGLASS_API_KEY":
         print("[ERROR] stormglass_api_key is not configured in config.json.")
         sys.exit(1)
 
-    start_dt = datetime.now(JST).replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
-    end_dt = start_dt + timedelta(days=DAYS_TO_SHOW)
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if today_only:
+        start_dt = midnight
+        end_dt = start_dt + timedelta(days=1)
+    else:
+        start_dt = midnight + timedelta(days=1)
+        end_dt = start_dt + timedelta(days=DAYS_TO_SHOW)
     start_ts = int(start_dt.timestamp())
     end_ts = int(end_dt.timestamp())
 
@@ -263,11 +293,11 @@ def main() -> None:
 
         records = fc.build_hourly_records(weather_data)
         tides_all = fc.compute_tides(tide_data)
-        section = build_location_section(location, records, tides_all, today)
+        section = build_location_section(location, records, tides_all, today, today_only=today_only)
         if section.strip():
             location_sections.append(section)
 
-    message = build_full_message(location_sections)
+    message = build_full_message(location_sections, today_only=today_only)
 
     print("\n" + "=" * 55)
     print(message)
