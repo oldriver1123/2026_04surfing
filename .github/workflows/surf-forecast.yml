@@ -1,0 +1,55 @@
+name: Surf Forecast
+
+on:
+  schedule:
+    # cron is UTC. JST = UTC+9.
+    - cron: "0 21 * * *"  # 06:00 JST
+    - cron: "0 9 * * *"   # 18:00 JST
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  send-forecast:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Write config.json from secrets
+        run: |
+          cat > config.json << EOF
+          {
+            "stormglass_api_key": "${{ secrets.STORMGLASS_API_KEY }}",
+            "notification": {
+              "line": {
+                "enabled": true,
+                "channel_access_token": "${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}",
+                "user_id": "${{ secrets.LINE_USER_ID }}"
+              },
+              "email": {
+                "enabled": true,
+                "to": "${{ secrets.EMAIL_TO }}",
+                "smtp": {
+                  "host": "smtp.gmail.com",
+                  "port": 587,
+                  "username": "${{ secrets.GMAIL_ADDRESS }}",
+                  "password": "${{ secrets.GMAIL_APP_PASSWORD }}",
+                  "from": "${{ secrets.GMAIL_ADDRESS }}"
+                }
+              }
+            }
+          }
+          EOF
+
+      - name: Run surf forecast
+        run: python main.py
