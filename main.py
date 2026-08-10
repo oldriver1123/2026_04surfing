@@ -138,6 +138,7 @@ def build_day_block(
     lines = [
         f"■ {day_label(target, today)}",
         f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
+        f"判定: {fixed_score.decision}",
         f"【波の状態】{fixed_score.wave_condition_score}点",
         f"  風: {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s（{fixed_score.wind_label}）",
         f"  周期: {fixed_summary['wave_period']:.0f}秒（{fixed_score.period_label}）",

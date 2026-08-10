@@ -38,6 +38,7 @@ class SurfScore:
     crowd_label: str          # 混雑度ラベル
     risk_note: str             # クローズアウト等の注意書き（該当なしなら空文字）
     crowd_caution: bool         # 好条件で上級者が集まりやすいことへの注意フラグ
+    decision: str                # 行くべきか（◎行くべき / △要注意 / ✕見送り推奨）
     rating: str                # ★評価
     comment: str                # 一言コメント
     wave_label: str             # 波の大きさ説明
@@ -221,6 +222,16 @@ def calculate(wave_height: float, swell_period: float, wave_period: float,
     # （実際の混雑状況はデータ化できないため、スコアではなく注意書きで表現する）
     crowd_caution = wave_condition_score >= 80
 
+    # 点数だけでなく、クローズアウトリスクの有無も加味して行動判定にする。
+    # 70点以上でもリスク注意書きがある場合は「行くべき」から外す
+    # （見た目のスコアが良くても海面が乱れて練習にならなかった実績を踏まえた措置）。
+    if total >= 70 and not risk_note:
+        decision = "◎ 行くべき"
+    elif total >= 55:
+        decision = "△ 要注意（現地レポートも確認を）"
+    else:
+        decision = "✕ 見送り推奨"
+
     if total >= 85:
         rating, comment = "★★★★★", "絶好のコンディション！迷わず入ろう"
     elif total >= 70:
@@ -246,6 +257,7 @@ def calculate(wave_height: float, swell_period: float, wave_period: float,
         crowd_label=crowd_label,
         risk_note=risk_note,
         crowd_caution=crowd_caution,
+        decision=decision,
         rating=rating,
         comment=comment,
         wave_label=wave_label,
