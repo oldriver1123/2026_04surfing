@@ -36,6 +36,8 @@ class SurfScore:
     weather_score: int        # 天気スコア
     crowd_score: int          # 混雑スコア
     crowd_label: str          # 混雑度ラベル
+    risk_note: str             # クローズアウト等の注意書き（該当なしなら空文字）
+    crowd_caution: bool         # 好条件で上級者が集まりやすいことへの注意フラグ
     rating: str                # ★評価
     comment: str                # 一言コメント
     wave_label: str             # 波の大きさ説明
@@ -49,6 +51,8 @@ def _score_wave_height(h: float) -> tuple[int, str]:
     波高スコアと説明（有義波高 Hs）
     横にすべる練習には「腰前後」が最も乗りやすく練習になるサイズ。
     それより大きくなると初級者には乗れない・危険なサイズとして急激に評価を下げる。
+    実際に腰〜胸（0.8〜1.0m）でも急に崩れて練習にならなかった実績を踏まえ、
+    このゾーンより上は上級者向けとして厳しめに採点する。
     """
     if h < 0.2:
         return 10,  "フラット（ほぼ波なし・練習不可）"
@@ -59,11 +63,11 @@ def _score_wave_height(h: float) -> tuple[int, str]:
     elif h < 0.8:
         return 100, "腰前後（ミッドレングスが一番活きるベストサイズ）"
     elif h < 1.0:
-        return 65,  "腰〜胸（やや大きめ。パワーが増しコントロールが難しい）"
+        return 40,  "腰〜胸（急に崩れやすく上級者向き。練習には大きすぎる可能性大）"
     elif h < 1.3:
-        return 30,  "胸〜肩（初級者には大きすぎて練習にならない）"
+        return 15,  "胸〜肩（初級者には大きすぎて練習にならない）"
     elif h < 1.8:
-        return 10,  "肩〜頭（大きすぎて乗るのが難しい・危険）"
+        return 5,   "肩〜頭（大きすぎて乗るのが難しい・危険）"
     else:
         return 0,   "頭オーバー（高すぎて乗れない・危険）"
 
@@ -88,6 +92,31 @@ def _score_wave_period(p: float) -> tuple[int, str]:
         return 80,  "ロングピリオド（パワフル）"
     else:
         return 55,  "非常に長い（威力が強くタイミング注意）"
+
+
+def _closeout_risk(swell_period: float, wave_period: float, height: float) -> tuple[float, str]:
+    """
+    うねり本来の周期（swellPeriod）に対して合成周期（wavePeriod）が
+    大きく短い場合、うねりに別の短周期の波（風波や副次的なうねり）が
+    重なって海面が乱れている可能性が高い。
+    複数の周期の波が重なるとタイミングにより波が急に大きくなったり
+    予測しづらく崩れたりしやすいため、このギャップが大きいほど
+    「波が乱れやすい」ものとして波の状態スコアを減点する。
+    波高が小さいうちは乱れていても実害が小さいため対象外とする。
+    """
+    if height < 0.4:
+        return 1.0, ""
+
+    gap = swell_period - wave_period
+    if gap >= 4:
+        return 0.6, (
+            f"うねり周期{swell_period:.0f}秒に対し合成周期{wave_period:.0f}秒と短く、"
+            "波が複数混ざって不規則・急に崩れやすい状態"
+        )
+    elif gap >= 2:
+        return 0.8, "うねりに短周期の波が混ざり、やや波が乱れやすい状態"
+    else:
+        return 1.0, ""
 
 
 def _score_wind(speed: float, direction: float) -> tuple[int, str]:
@@ -154,7 +183,7 @@ def _score_weather(cloud_cover: float, precipitation: float) -> int:
 
 # ---------- 総合スコア ----------
 
-def calculate(wave_height: float, wave_period: float,
+def calculate(wave_height: float, swell_period: float, wave_period: float,
               wind_speed: float, wind_direction: float,
               cloud_cover: float = 0.0, precipitation: float = 0.0,
               dt_date: date_type | None = None) -> SurfScore:
@@ -162,10 +191,13 @@ def calculate(wave_height: float, wave_period: float,
     初級者（横にすべる練習中）× ミッドレングス7.8ft 向け総合サーフィン適性スコアを計算する
 
     重み: 波の状態（風35% / 周期30% / 波高35%）70% → 混雑20% → 天気10%
+    「周期」の表示・採点はうねり本来の周期（swell_period）を使う。
+    合成周期（wave_period）は swell_period との差分から海面の乱れ具合を
+    判定するためだけに使う（_closeout_risk）。
     潮はスコアに含まず、表示情報として保持する
     """
     wh_score,  wave_label  = _score_wave_height(wave_height)
-    wp_score,  period_label = _score_wave_period(wave_period)
+    wp_score,  period_label = _score_wave_period(swell_period)
     wnd_score, wind_label  = _score_wind(wind_speed, wind_direction)
     wthr_score             = _score_weather(cloud_cover, precipitation)
     crd_score, crowd_label = _score_crowd(dt_date or date_type.today())
@@ -176,11 +208,18 @@ def calculate(wave_height: float, wave_period: float,
         wp_score  * 0.30
     )
 
+    risk_factor, risk_note = _closeout_risk(swell_period, wave_period, wave_height)
+    wave_condition_score = round(wave_condition_score * risk_factor)
+
     total = round(
         wave_condition_score * 0.70 +
         crd_score             * 0.20 +
         wthr_score             * 0.10
     )
+
+    # 好条件の日は上級ショートボーダーが集まり混雑しやすいため注意を促す
+    # （実際の混雑状況はデータ化できないため、スコアではなく注意書きで表現する）
+    crowd_caution = wave_condition_score >= 80
 
     if total >= 85:
         rating, comment = "★★★★★", "絶好のコンディション！迷わず入ろう"
@@ -205,6 +244,8 @@ def calculate(wave_height: float, wave_period: float,
         weather_score=wthr_score,
         crowd_score=crd_score,
         crowd_label=crowd_label,
+        risk_note=risk_note,
+        crowd_caution=crowd_caution,
         rating=rating,
         comment=comment,
         wave_label=wave_label,
@@ -221,7 +262,7 @@ def best_windows(day_records: list[dict]) -> list[dict]:
         if not (5 <= r["datetime"].hour <= 18):
             continue
         score = calculate(
-            r["wave_height"], r["wave_period"],
+            r["wave_height"], r["swell_period"], r["wave_period"],
             r["wind_speed"],  r["wind_direction"],
             r["cloud_cover"], r["precipitation"],
             r["datetime"].date(),

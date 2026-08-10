@@ -100,7 +100,7 @@ def summarize_records(records: list[dict]) -> dict:
     base = records[0]
     return {
         "wave_height": sum(record["wave_height"] for record in records) / len(records),
-        "wave_period": sum(record["wave_period"] for record in records) / len(records),
+        "wave_period": sum(record["swell_period"] for record in records) / len(records),
         "wind_speed": sum(record["wind_speed"] for record in records) / len(records),
         "temperature": sum(record["temperature"] for record in records) / len(records),
         "wind_direction": base["wind_direction"],
@@ -149,6 +149,11 @@ def build_day_block(
         lines.append(f"  潮: 満潮 {highs} / 干潮 {lows}")
 
     lines.append(f"【天気】{fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C")
+
+    if fixed_score.risk_note:
+        lines.append(f"⚠ {fixed_score.risk_note}")
+    if fixed_score.crowd_caution:
+        lines.append("⚠ 好条件のため上級ショートボーダーで混雑する可能性あり。現地情報も確認を")
 
     is_better_outside_target = (
         overall_score.total > fixed_score.total
