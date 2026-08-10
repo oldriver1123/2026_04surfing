@@ -50,49 +50,40 @@ class SurfScore:
 def _score_wave_height(h: float) -> tuple[int, str]:
     """
     波高スコアと説明（有義波高 Hs）
-    横にすべる練習には「腰前後」が最も乗りやすく練習になるサイズ。
-    それより大きくなると初級者には乗れない・危険なサイズとして急激に評価を下げる。
-    実際に腰〜胸（0.8〜1.0m）でも急に崩れて練習にならなかった実績を踏まえ、
-    このゾーンより上は上級者向けとして厳しめに採点する。
+    実体験を踏まえ、0.3〜0.6m（ひざ〜腰）を理想サイズとする。
+    0.2m以下（フラット）・0.9m以上（大きすぎ）は実質サーフィンできないため 0点。
     """
-    if h < 0.2:
-        return 10,  "フラット（ほぼ波なし・練習不可）"
-    elif h < 0.4:
-        return 40,  "ひざ以下（推進力が弱くターン練習には物足りない）"
-    elif h < 0.6:
-        return 80,  "ひざ〜腰（もう少しで理想サイズ）"
-    elif h < 0.8:
-        return 100, "腰前後（ミッドレングスが一番活きるベストサイズ）"
-    elif h < 1.0:
-        return 40,  "腰〜胸（急に崩れやすく上級者向き。練習には大きすぎる可能性大）"
-    elif h < 1.3:
-        return 15,  "胸〜肩（初級者には大きすぎて練習にならない）"
-    elif h < 1.8:
-        return 5,   "肩〜頭（大きすぎて乗るのが難しい・危険）"
+    if h <= 0.2:
+        return 0,   "フラット（波なし・サーフィン不可）"
+    elif h < 0.3:
+        return 50,  "ひざ以下（やや物足りない）"
+    elif h <= 0.6:
+        return 100, "理想サイズ（ひざ〜腰、練習に最適）"
+    elif h < 0.9:
+        return 45,  "腰〜胸（やや大きめ、練習には厳しい）"
     else:
-        return 0,   "頭オーバー（高すぎて乗れない・危険）"
+        return 0,   "大きすぎる（サーフィン不可）"
 
 
 def _score_wave_period(p: float) -> tuple[int, str]:
     """
     波の周期スコアと説明
-    ミッドレングスは短周期の波でも掴みやすいが、面がきれいに整うのは
-    やはり周期が長い groundswell。9〜13秒を最も高評価とする。
+    実体験を踏まえ、5〜8秒を理想的な周期とする。
     """
     if p <= 0:
         return 0,   "データなし"
+    elif p < 4:
+        return 30,  "短すぎる（面が乱れやすい）"
     elif p < 5:
-        return 25,  "短め（面が乱れやすい）"
-    elif p < 7:
-        return 60,  "やや短め"
-    elif p < 9:
-        return 85,  "まずまず"
-    elif p <= 13:
+        return 70,  "やや短め"
+    elif p <= 8:
         return 100, "理想的（面がきれいで走りやすい）"
-    elif p <= 16:
-        return 80,  "ロングピリオド（パワフル）"
+    elif p <= 10:
+        return 70,  "やや長め"
+    elif p <= 13:
+        return 50,  "長め（パワフル）"
     else:
-        return 55,  "非常に長い（威力が強くタイミング注意）"
+        return 30,  "非常に長い（威力が強くタイミング注意）"
 
 
 def _closeout_risk(swell_period: float, wave_period: float, height: float) -> tuple[float, str]:
@@ -125,8 +116,8 @@ def _score_wind(speed: float, direction: float) -> tuple[int, str]:
     風速・風向スコアと種別ラベル
     横にすべる練習には面のきれいさ（風向）が波高と同じくらい重要なため
     オフショアとオンショアの差を大きめに取る。
-    ラベルは風向だけで決めず、風速も合成したうえで「理想的」等の
-    評価文を出す（オフショアでも強風ならパドルが大変で理想的とは言えない）。
+    実体験を踏まえ、風速0〜3m/sを適度、4m/sをやや強い、
+    5m/s以上は風向に関わらずサーフィン不可として評価を大きく下げる。
     """
     d = direction % 360
     if d <= 45 or d >= 315:
@@ -138,12 +129,13 @@ def _score_wind(speed: float, direction: float) -> tuple[int, str]:
     else:
         dir_score, dir_name = 10,  "オンショア"
 
-    if speed <= 2:    spd_score, spd_name = 100, "微風"
-    elif speed <= 4:  spd_score, spd_name = 88,  "軽め"
-    elif speed <= 6:  spd_score, spd_name = 70,  "やや強め"
-    elif speed <= 9:  spd_score, spd_name = 45,  "強め"
-    elif speed <= 12: spd_score, spd_name = 20,  "かなり強い"
-    else:             spd_score, spd_name = 5,   "暴風"
+    if speed >= 5:
+        return 0, f"{dir_name}・強すぎる（風が強くサーフィン不可）"
+
+    if speed <= 3:
+        spd_score, spd_name = 100, "適度"
+    else:
+        spd_score, spd_name = 60,  "やや強め"
 
     combined = int(spd_score * 0.50 + dir_score * 0.50)
 
@@ -151,12 +143,8 @@ def _score_wind(speed: float, direction: float) -> tuple[int, str]:
         quality = "理想的。面がきれいでターン練習に最適"
     elif combined >= 70:
         quality = "練習に適した状態"
-    elif combined >= 45:
-        quality = "やや面が乱れる"
-    elif combined >= 20:
-        quality = "面が荒れやすく練習には不向き"
     else:
-        quality = "強風で面が大きく乱れ危険"
+        quality = "やや面が乱れる"
 
     wind_label = f"{dir_name}・{spd_name}（{quality}）"
     return combined, wind_label
