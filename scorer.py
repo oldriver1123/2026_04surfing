@@ -125,25 +125,41 @@ def _score_wind(speed: float, direction: float) -> tuple[int, str]:
     風速・風向スコアと種別ラベル
     横にすべる練習には面のきれいさ（風向）が波高と同じくらい重要なため
     オフショアとオンショアの差を大きめに取る。
+    ラベルは風向だけで決めず、風速も合成したうえで「理想的」等の
+    評価文を出す（オフショアでも強風ならパドルが大変で理想的とは言えない）。
     """
     d = direction % 360
     if d <= 45 or d >= 315:
-        dir_score, wind_label = 100, "オフショア（理想的。面がきれいでターン練習に最適）"
+        dir_score, dir_name = 100, "オフショア"
     elif (45 < d <= 90) or (270 <= d < 315):
-        dir_score, wind_label = 65,  "サイドオフショア（やや面が乱れるが練習可）"
+        dir_score, dir_name = 65,  "サイドオフショア"
     elif (90 < d <= 135) or (225 <= d < 270):
-        dir_score, wind_label = 30,  "サイドオンショア（面が荒れやすい）"
+        dir_score, dir_name = 30,  "サイドオンショア"
     else:
-        dir_score, wind_label = 10,  "オンショア（面が乱れターン練習には不向き）"
+        dir_score, dir_name = 10,  "オンショア"
 
-    if speed <= 2:    spd_score = 100
-    elif speed <= 4:  spd_score = 88
-    elif speed <= 6:  spd_score = 70
-    elif speed <= 9:  spd_score = 45
-    elif speed <= 12: spd_score = 20
-    else:             spd_score = 5
+    if speed <= 2:    spd_score, spd_name = 100, "微風"
+    elif speed <= 4:  spd_score, spd_name = 88,  "軽め"
+    elif speed <= 6:  spd_score, spd_name = 70,  "やや強め"
+    elif speed <= 9:  spd_score, spd_name = 45,  "強め"
+    elif speed <= 12: spd_score, spd_name = 20,  "かなり強い"
+    else:             spd_score, spd_name = 5,   "暴風"
 
-    return int(spd_score * 0.50 + dir_score * 0.50), wind_label
+    combined = int(spd_score * 0.50 + dir_score * 0.50)
+
+    if combined >= 90:
+        quality = "理想的。面がきれいでターン練習に最適"
+    elif combined >= 70:
+        quality = "練習に適した状態"
+    elif combined >= 45:
+        quality = "やや面が乱れる"
+    elif combined >= 20:
+        quality = "面が荒れやすく練習には不向き"
+    else:
+        quality = "強風で面が大きく乱れ危険"
+
+    wind_label = f"{dir_name}・{spd_name}（{quality}）"
+    return combined, wind_label
 
 
 def _score_crowd(dt_date: date_type) -> tuple[int, str]:
