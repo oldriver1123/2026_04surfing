@@ -7,10 +7,8 @@ scorer.py
   - ボード: ミッドレングス 7.8ft（ボリュームがあり波を掴みやすく安定感がある）
 
 重み配分:
-  波の状態（風35% / 周期30% / 波高35% の合成）  80%
-  混雑                                           0%（参考情報のみ）
-  天気                                          20%
-  ※ 潮は満干潮の時刻・潮位としてメール本文に表示のみ（スコアには含まない）
+  波高40% / 風30% / 周期20% / 潮10%
+  混雑・天気は参考情報のみ（総合点には含めない）
 
 鵠沼（スケートパーク前）は南向きビーチ:
   - オフショア（良）: 北風  = 315〜45°
@@ -21,6 +19,8 @@ scorer.py
 
 from dataclasses import dataclass
 from datetime import date as date_type
+from datetime import datetime
+from math import cos, pi
 
 import jpholiday
 
@@ -43,6 +43,8 @@ class SurfScore:
     comment: str                # 一言コメント
     wave_label: str             # 波の大きさ説明
     wind_label: str             # 風の種類
+    tide_score: int = 50        # 潮の適性（未判定時は暫定50点）
+    tide_label: str = "未判定・暫定50点"
 
 
 # ---------- 個別スコア ----------
@@ -190,36 +192,70 @@ def _score_weather(cloud_cover: float, precipitation: float) -> int:
 
 # ---------- 総合スコア ----------
 
+def _score_tide(at: datetime | None, height: float,
+                tides: dict | None) -> tuple[int, str]:
+    """満干潮間を余弦補間した相対潮位による個人向け暫定評価。"""
+    if at is None or not tides:
+        return 50, "未判定・暫定50点（潮汐データ不足）"
+    events = sorted([(dt, "high") for dt, _ in tides.get("highs", [])]
+                    + [(dt, "low") for dt, _ in tides.get("lows", [])])
+    level = None
+    falling = False
+    phase = ""
+    for dt, kind in events:
+        if dt == at:
+            level = 1.0 if kind == "high" else 0.0
+            phase = "満潮" if kind == "high" else "干潮"
+            break
+    if level is None:
+        for (start, kind), (end, next_kind) in zip(events, events[1:]):
+            if start < at < end and kind != next_kind:
+                progress = (at - start).total_seconds() / (end - start).total_seconds()
+                falling = kind == "high"
+                level = (1 + cos(pi * progress)) / 2
+                if not falling:
+                    level = 1 - level
+                phase = "下げ潮" if falling else "上げ潮"
+                break
+    if level is None:
+        return 50, "未判定・暫定50点（前後の満干潮データ不足）"
+    if height <= 0.6:
+        points = min(100, round(20 + 70 * (1 - level) + (10 if falling else 0)))
+        rule = "小波は干潮寄り・下げ潮を高評価"
+    else:
+        points = round(40 + 60 * (1 - abs(2 * level - 1)))
+        rule = "中間潮位を高評価"
+    return points, f"{phase}・相対潮位{level * 100:.0f}%推定（{rule}・暫定基準）"
+
 def calculate(wave_height: float, swell_period: float, wave_period: float,
               wind_speed: float, wind_direction: float,
               cloud_cover: float = 0.0, precipitation: float = 0.0,
-              dt_date: date_type | None = None) -> SurfScore:
+              dt_date: date_type | None = None, *,
+              at: datetime | None = None, tides: dict | None = None) -> SurfScore:
     """
     初級者（横にすべる練習中）× ミッドレングス7.8ft 向け総合サーフィン適性スコアを計算する
 
-    重み: 波の状態（風35% / 周期30% / 波高35%）80% + 天気20%
-    混雑は参考情報として保持し、総合点には含めない。
+    重み: 波高40% + 風30% + 周期20% + 潮10%。
+    混雑と天気は参考情報として保持し、総合点には含めない。
     「周期」の表示・採点はうねり本来の周期（swell_period）を使う。
     合成周期（wave_period）は swell_period との差分から海面の乱れ具合を
     判定するためだけに使う（_closeout_risk）。
-    潮はスコアに含まず、表示情報として保持する
+    潮は満干潮から推定する。データ不足時は暫定50点。
     """
     wh_score,  wave_label  = _score_wave_height(wave_height)
     wp_score,  period_label = _score_wave_period(swell_period)
     wnd_score, wind_label  = _score_wind(wind_speed, wind_direction)
     wthr_score             = _score_weather(cloud_cover, precipitation)
     crd_score, crowd_label = _score_crowd(dt_date or date_type.today())
-
-    wave_condition_score = round(
-        wh_score  * 0.35 +
-        wnd_score * 0.35 +
-        wp_score  * 0.30
-    )
+    tide_score, tide_label = _score_tide(at, wave_height, tides)
 
     risk_factor, risk_note = _closeout_risk(swell_period, wave_period, wave_height)
-    wave_condition_score = round(wave_condition_score * risk_factor)
+    wave_condition_score = round(
+        (wh_score * 0.40 + wnd_score * 0.30 + wp_score * 0.20) * risk_factor
+        + tide_score * 0.10
+    )
 
-    # 風や天気の加点で、練習できる波の不足を相殺しない。
+    # 風・周期・潮の加点で、練習できる波の不足を相殺しない。
     # 2026/09/25の現地報告を踏まえた暫定基準（物理的な可否の断定ではない）。
     score_cap = 100
     if wave_height <= 0.35:
@@ -233,11 +269,7 @@ def calculate(wave_height: float, swell_period: float, wave_period: float,
         risk_note = "波高または風速が想定する練習条件の範囲外。" + risk_note
     wave_condition_score = min(wave_condition_score, score_cap)
 
-    total = round(
-        wave_condition_score * 0.80 +
-        wthr_score             * 0.20
-    )
-    total = min(total, score_cap)
+    total = wave_condition_score
 
     # 好条件の日は上級ショートボーダーが集まり混雑しやすいため注意を促す
     # （実際の混雑状況はデータ化できないため、スコアではなく注意書きで表現する）
@@ -283,10 +315,12 @@ def calculate(wave_height: float, swell_period: float, wave_period: float,
         comment=comment,
         wave_label=wave_label,
         wind_label=wind_label,
+        tide_score=tide_score,
+        tide_label=tide_label,
     )
 
 
-def best_windows(day_records: list[dict]) -> list[dict]:
+def best_windows(day_records: list[dict], tides: dict | None = None) -> list[dict]:
     """
     1日分のレコードを受け取り、サーフィン可能時間帯(5〜18時)のスコアを計算して返す
     """
@@ -299,6 +333,7 @@ def best_windows(day_records: list[dict]) -> list[dict]:
             r["wind_speed"],  r["wind_direction"],
             r["cloud_cover"], r["precipitation"],
             r["datetime"].date(),
+            at=r["datetime"], tides=tides,
         )
         results.append({**r, "score": score})
     return results

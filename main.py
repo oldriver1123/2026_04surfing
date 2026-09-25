@@ -114,8 +114,9 @@ def build_day_block(
     hours: list[dict],
     today: date,
     tide_info: dict | None = None,
+    tide_context: dict | None = None,
 ) -> str:
-    scored = sc.best_windows(hours)
+    scored = sc.best_windows(hours, tide_context if tide_context is not None else tide_info)
     if not scored:
         return ""
 
@@ -143,7 +144,7 @@ def build_day_block(
         f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
         f"判定: {fixed_score.decision}",
         f"※ 時間帯内の低い評価を採用（以下は{fixed_best['datetime'].hour:02d}:00の予報）",
-        f"【波の状態】{fixed_score.wave_condition_score}点",
+        f"【波の状態・潮】{fixed_score.wave_condition_score}点",
         f"  風: {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s（{fixed_score.wind_label}）",
         f"  周期: {fixed_summary['wave_period']:.0f}秒（{fixed_score.period_label}）",
         f"  予報波高: {fixed_summary['wave_height']:.2f}m（{fixed_score.wave_label}）",
@@ -152,6 +153,7 @@ def build_day_block(
     if tide_info:
         highs, lows = format_tides(tide_info)
         lines.append(f"  潮: 満潮 {highs} / 干潮 {lows}")
+    lines.append(f"  潮の評価: {fixed_score.tide_score}点（{fixed_score.tide_label}）")
 
     lines.append(f"【天気】{fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C")
 
@@ -167,7 +169,8 @@ def build_day_block(
                 f"予報上の候補 {overall_hour:02d}:00-{overall_hour + 2:02d}:00 ({overall_total}点)"
             )
 
-    lines.append("※ 予報波高は岸の波サイズとは異なります。地形・潮による割れ方は未判定です")
+    lines.append("※ 配点: 波高40%・風30%・周期20%・潮10%。小波不足等では点数上限あり")
+    lines.append("※ 予報波高は岸の波サイズとは異なります。潮は時刻からの推定で、実際の割れ方は未判定です")
 
     return "\n".join(lines)
 
@@ -187,8 +190,11 @@ def build_location_section(
         target_keys = [key for key in sorted(daily.keys()) if key > today_str][:DAYS_TO_SHOW]
 
     blocks = []
+    tide_context = {kind: [entry for day in tides_all.values() for entry in day.get(kind, [])]
+                    for kind in ("highs", "lows")}
     for date_str in target_keys:
-        block = build_day_block(date_str, daily[date_str], today, tide_info=tides_all.get(date_str))
+        block = build_day_block(date_str, daily[date_str], today,
+                                tide_info=tides_all.get(date_str), tide_context=tide_context)
         if block:
             blocks.append(block)
 
@@ -296,7 +302,9 @@ def main() -> None:
         print(f"Fetching data for {location['name']}...")
         try:
             weather_data = fc.fetch_weather(location["lat"], location["lon"], api_key, start_ts, end_ts)
-            tide_data = fc.fetch_tides(location["lat"], location["lon"], api_key, start_ts, end_ts)
+            # 日付境界でも前後の満干潮で挟めるよう、潮だけ前後1日広く取得する。
+            tide_data = fc.fetch_tides(location["lat"], location["lon"], api_key,
+                                       start_ts - 86400, end_ts + 86400)
         except Exception as exc:
             print(f"[ERROR] Failed to fetch data for {location['name']}: {exc}")
             continue
