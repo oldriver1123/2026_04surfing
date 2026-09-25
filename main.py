@@ -16,8 +16,9 @@ import forecast as fc
 import scorer as sc
 from notifier import send_email, send_line
 
-sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
-sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
 JST = pytz.timezone("Asia/Tokyo")
 
@@ -123,26 +124,29 @@ def build_day_block(
         record for record in scored
         if TARGET_START_HOUR <= record["datetime"].hour < TARGET_END_HOUR
     ]
-    if not fixed_window:
+    if {r["datetime"].hour for r in fixed_window} != {8, 9}:
         return ""
 
-    fixed_best = max(fixed_window, key=lambda item: item["score"].total)
+    fixed_best = min(fixed_window, key=lambda item: item["score"].total)
     fixed_score = fixed_best["score"]
-    fixed_summary = summarize_records(fixed_window)
+    fixed_summary = summarize_records([fixed_best])
 
-    overall_best = max(scored, key=lambda item: item["score"].total)
-    overall_score = overall_best["score"]
-    overall_hour = overall_best["datetime"].hour
-    overall_end_hour = min(overall_hour + 2, 20)
+    by_hour = {r["datetime"].hour: r for r in scored}
+    windows = [(hour, min(by_hour[hour]["score"].total,
+                          by_hour[hour + 1]["score"].total))
+               for hour in sorted(by_hour) if hour + 1 in by_hour
+               and all(by_hour[h]["score"].decision == "◎ 行くべき"
+                       for h in (hour, hour + 1))]
 
     lines = [
         f"■ {day_label(target, today)}",
         f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
         f"判定: {fixed_score.decision}",
+        f"※ 時間帯内の低い評価を採用（以下は{fixed_best['datetime'].hour:02d}:00の予報）",
         f"【波の状態】{fixed_score.wave_condition_score}点",
         f"  風: {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s（{fixed_score.wind_label}）",
         f"  周期: {fixed_summary['wave_period']:.0f}秒（{fixed_score.period_label}）",
-        f"  波高: {fixed_summary['wave_height']:.1f}m（{fixed_score.wave_label}）",
+        f"  予報波高: {fixed_summary['wave_height']:.2f}m（{fixed_score.wave_label}）",
     ]
 
     if tide_info:
@@ -156,14 +160,14 @@ def build_day_block(
     if fixed_score.crowd_caution:
         lines.append("⚠ 好条件のため上級ショートボーダーで混雑する可能性あり。現地情報も確認を")
 
-    is_better_outside_target = (
-        overall_score.total > fixed_score.total
-        and not (TARGET_START_HOUR <= overall_hour < TARGET_END_HOUR)
-    )
-    if is_better_outside_target:
-        lines.append(
-            f"より良い時間帯 {overall_hour:02d}:00-{overall_end_hour:02d}:00 ({overall_score.total}点)"
-        )
+    if windows:
+        overall_hour, overall_total = max(windows, key=lambda item: item[1])
+        if overall_total > fixed_score.total and overall_hour != TARGET_START_HOUR:
+            lines.append(
+                f"予報上の候補 {overall_hour:02d}:00-{overall_hour + 2:02d}:00 ({overall_total}点)"
+            )
+
+    lines.append("※ 予報波高は岸の波サイズとは異なります。地形・潮による割れ方は未判定です")
 
     return "\n".join(lines)
 

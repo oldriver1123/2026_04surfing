@@ -7,9 +7,9 @@ scorer.py
   - ボード: ミッドレングス 7.8ft（ボリュームがあり波を掴みやすく安定感がある）
 
 重み配分:
-  波の状態（風35% / 周期30% / 波高35% の合成）  70%
-  混雑                                          20%
-  天気                                          10%
+  波の状態（風35% / 周期30% / 波高35% の合成）  80%
+  混雑                                           0%（参考情報のみ）
+  天気                                          20%
   ※ 潮は満干潮の時刻・潮位としてメール本文に表示のみ（スコアには含まない）
 
 鵠沼（スケートパーク前）は南向きビーチ:
@@ -50,17 +50,19 @@ class SurfScore:
 def _score_wave_height(h: float) -> tuple[int, str]:
     """
     波高スコアと説明（有義波高 Hs）
-    実体験を踏まえ、0.3〜0.6m（ひざ〜腰）を理想サイズとする。
-    0.2m以下（フラット）・0.9m以上（大きすぎ）は実質サーフィンできないため 0点。
+    モデルの有義波高を岸で崩れる波のサイズへ直接換算しない。
+    0.35m以下は小波不足、0.45m以下は要確認とする暫定的な個人向け基準。
     """
     if h <= 0.2:
-        return 0,   "フラット（波なし・サーフィン不可）"
-    elif h < 0.3:
-        return 50,  "ひざ以下（やや物足りない）"
+        return 0,   "波が非常に小さい予報（練習できる波は期待薄）"
+    elif h <= 0.35:
+        return 15,  "小さく弱い予報（横に走る練習は期待薄）"
+    elif h <= 0.45:
+        return 40,  "小波予報（乗れる波か現地確認が必要）"
     elif h <= 0.6:
-        return 100, "理想サイズ（ひざ〜腰、練習に最適）"
+        return 100, "練習候補の波高（実際の割れ方は現地確認）"
     elif h < 0.9:
-        return 45,  "腰〜胸（やや大きめ、練習には厳しい）"
+        return 45,  "やや大きめの予報（風・周期などが良ければ練習候補）"
     else:
         return 0,   "大きすぎる（サーフィン不可）"
 
@@ -77,7 +79,7 @@ def _score_wave_period(p: float) -> tuple[int, str]:
     elif p < 5:
         return 70,  "やや短め"
     elif p <= 8:
-        return 100, "理想的（面がきれいで走りやすい）"
+        return 100, "採点上の適正範囲（波の強さ・割れ方は別途確認）"
     elif p <= 10:
         return 70,  "やや長め"
     elif p <= 13:
@@ -140,9 +142,9 @@ def _score_wind(speed: float, direction: float) -> tuple[int, str]:
     combined = int(spd_score * 0.50 + dir_score * 0.50)
 
     if combined >= 90:
-        quality = "理想的。面がきれいでターン練習に最適"
+        quality = "風の条件は良好。乗れる波があるかは別途確認"
     elif combined >= 70:
-        quality = "練習に適した状態"
+        quality = "風の条件は比較的良好"
     else:
         quality = "やや面が乱れる"
 
@@ -195,7 +197,8 @@ def calculate(wave_height: float, swell_period: float, wave_period: float,
     """
     初級者（横にすべる練習中）× ミッドレングス7.8ft 向け総合サーフィン適性スコアを計算する
 
-    重み: 波の状態（風35% / 周期30% / 波高35%）70% → 混雑20% → 天気10%
+    重み: 波の状態（風35% / 周期30% / 波高35%）80% + 天気20%
+    混雑は参考情報として保持し、総合点には含めない。
     「周期」の表示・採点はうねり本来の周期（swell_period）を使う。
     合成周期（wave_period）は swell_period との差分から海面の乱れ具合を
     判定するためだけに使う（_closeout_risk）。
@@ -216,11 +219,25 @@ def calculate(wave_height: float, swell_period: float, wave_period: float,
     risk_factor, risk_note = _closeout_risk(swell_period, wave_period, wave_height)
     wave_condition_score = round(wave_condition_score * risk_factor)
 
+    # 風や天気の加点で、練習できる波の不足を相殺しない。
+    # 2026/09/25の現地報告を踏まえた暫定基準（物理的な可否の断定ではない）。
+    score_cap = 100
+    if wave_height <= 0.35:
+        score_cap = 39
+        risk_note = "波が弱く、ショアブレイクのみの可能性。横に走れる波か現地確認を"
+    elif wave_height <= 0.45:
+        score_cap = 54
+        risk_note = "小波のため練習できる波があるか要確認。" + risk_note
+    elif wh_score == 0 or wnd_score == 0:
+        score_cap = 39
+        risk_note = "波高または風速が想定する練習条件の範囲外。" + risk_note
+    wave_condition_score = min(wave_condition_score, score_cap)
+
     total = round(
-        wave_condition_score * 0.70 +
-        crd_score             * 0.20 +
-        wthr_score             * 0.10
+        wave_condition_score * 0.80 +
+        wthr_score             * 0.20
     )
+    total = min(total, score_cap)
 
     # 好条件の日は上級ショートボーダーが集まり混雑しやすいため注意を促す
     # （実際の混雑状況はデータ化できないため、スコアではなく注意書きで表現する）
