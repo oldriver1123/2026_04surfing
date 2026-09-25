@@ -50,7 +50,8 @@ class SurfScoringTests(unittest.TestCase):
         block = build_day_block("2026-09-25", [record(8, 0.5), record(9, 0.5)],
                                 date(2026, 9, 25), tide_info=tides)
         self.assertIn("下げ潮", block)
-        self.assertIn("潮の評価:", block)
+        self.assertIn("（8-10時: 下げ潮）", block)
+        self.assertNotIn("潮の評価:", block)
 
     def test_tide_weight_and_small_wave_cap(self):
         tides = {"highs": [(datetime(2026, 9, 25, 4), 1.5)],
@@ -91,9 +92,18 @@ class SurfScoringTests(unittest.TestCase):
         block = build_day_block("2026-09-25", [record(8, 0.5), record(9, 0.3)],
                                 date(2026, 9, 25))
         self.assertIn("見送り推奨", block)
-        self.assertIn("09:00の予報", block)
+        self.assertIn("09/25(金)8:00-10:00 は 39点", block)
         self.assertIn("0.30m", block)
         self.assertNotIn("予報上の候補", block)
+        self.assertNotIn("時間帯内の低い評価", block)
+        self.assertNotIn("【波の状態・潮】", block)
+        self.assertIn("  天気:", block)
+        self.assertNotIn("※ 配点:", block)
+        self.assertNotIn("予報波高は岸の波サイズ", block)
+        lines = block.splitlines()
+        self.assertEqual(lines[1], "判定: ✕ 見送り推奨")
+        self.assertTrue(lines[2].startswith("⚠ 波が弱く"))
+        self.assertTrue(lines[-1].startswith("  天気:"))
 
     def test_better_window_needs_two_good_hours(self):
         records = [record(7, 0.5), record(8, 0.3), record(9, 0.3)]

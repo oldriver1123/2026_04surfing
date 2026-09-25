@@ -94,6 +94,18 @@ def format_tides(tide_info: dict) -> tuple[str, str]:
     return highs, lows
 
 
+def tide_flow_label(records: list[dict]) -> str:
+    """時間帯内の潮の向きを、重複を省いて時系列で返す。"""
+    phases = []
+    for record in sorted(records, key=lambda item: item["datetime"]):
+        phase = record["score"].tide_label.split("・", 1)[0]
+        if phase not in ("上げ潮", "下げ潮", "満潮", "干潮"):
+            phase = "未判定"
+        if not phases or phases[-1] != phase:
+            phases.append(phase)
+    return "→".join(phases)
+
+
 def summarize_records(records: list[dict]) -> dict:
     if not records:
         return {}
@@ -140,11 +152,14 @@ def build_day_block(
                        for h in (hour, hour + 1))]
 
     lines = [
-        f"■ {day_label(target, today)}",
-        f"8:00-10:00 は {fixed_score.rating} {fixed_score.total}点",
+        f"{target.strftime('%m/%d')}({['月', '火', '水', '木', '金', '土', '日'][target.weekday()]})"
+        f"8:00-10:00 は {fixed_score.total}点",
         f"判定: {fixed_score.decision}",
-        f"※ 時間帯内の低い評価を採用（以下は{fixed_best['datetime'].hour:02d}:00の予報）",
-        f"【波の状態・潮】{fixed_score.wave_condition_score}点",
+    ]
+    if fixed_score.risk_note:
+        lines.append(f"⚠ {fixed_score.risk_note}")
+
+    lines += [
         f"  風: {wind_dir_label(fixed_summary['wind_direction'])} {fixed_summary['wind_speed']:.1f}m/s（{fixed_score.wind_label}）",
         f"  周期: {fixed_summary['wave_period']:.0f}秒（{fixed_score.period_label}）",
         f"  予報波高: {fixed_summary['wave_height']:.2f}m（{fixed_score.wave_label}）",
@@ -152,13 +167,12 @@ def build_day_block(
 
     if tide_info:
         highs, lows = format_tides(tide_info)
-        lines.append(f"  潮: 満潮 {highs} / 干潮 {lows}")
-    lines.append(f"  潮の評価: {fixed_score.tide_score}点（{fixed_score.tide_label}）")
+        lines.append(
+            f"  潮: 満潮 {highs} / 干潮 {lows}（8-10時: {tide_flow_label(fixed_window)}）"
+        )
 
-    lines.append(f"【天気】{fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C")
+    lines.append(f"  天気: {fixed_summary['weather_desc']} / 気温 {fixed_summary['temperature']:.0f}C")
 
-    if fixed_score.risk_note:
-        lines.append(f"⚠ {fixed_score.risk_note}")
     if fixed_score.crowd_caution:
         lines.append("⚠ 好条件のため上級ショートボーダーで混雑する可能性あり。現地情報も確認を")
 
@@ -168,9 +182,6 @@ def build_day_block(
             lines.append(
                 f"予報上の候補 {overall_hour:02d}:00-{overall_hour + 2:02d}:00 ({overall_total}点)"
             )
-
-    lines.append("※ 配点: 波高40%・風30%・周期20%・潮10%。小波不足等では点数上限あり")
-    lines.append("※ 予報波高は岸の波サイズとは異なります。潮は時刻からの推定で、実際の割れ方は未判定です")
 
     return "\n".join(lines)
 
