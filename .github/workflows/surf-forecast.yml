@@ -37,15 +37,7 @@ jobs:
                 "user_id": "${{ secrets.LINE_USER_ID }}"
               },
               "email": {
-                "enabled": true,
-                "to": "${{ secrets.EMAIL_TO }}",
-                "smtp": {
-                  "host": "smtp.gmail.com",
-                  "port": 587,
-                  "username": "${{ secrets.GMAIL_ADDRESS }}",
-                  "password": "${{ secrets.GMAIL_APP_PASSWORD }}",
-                  "from": "${{ secrets.GMAIL_ADDRESS }}"
-                }
+                "enabled": false
               }
             }
           }
